@@ -1,0 +1,9 @@
+data/
+processing/
+*.npz
+*.wav
+*.mp4
+b64.txt
+__pycache__/
+.env
+EOF
