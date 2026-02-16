@@ -160,4 +160,4 @@ def predict(audio_path):
     proba=_m['clf'].predict_proba(combined)[0]
     cls="AI_GENERATED" if proba[1]>0.5 else "HUMAN"
     conf=round(max(0.51,min(0.99,float(max(proba)))),2)
-    return {"classification":cls,"confidenceScore":conf}
+    return {"classification":cls, "confidenceScore":conf, "features":sig}

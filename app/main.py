@@ -1,4 +1,5 @@
 import os
+from pyexpat import features
 import uuid
 import base64
 from fastapi import FastAPI, Header, Body
@@ -38,33 +39,84 @@ class VoiceRequest(BaseModel):
 
 # -------------------- HELPER FUNCTIONS --------------------
 
-def generate_explanation(classification: str, confidence: float, language: str) -> str:
-    """
-    Generates a human-readable explanation for the result.
-    """
-    if classification == "AI_GENERATED":
-        if confidence >= 0.8:
-            return (
-                f"High-confidence detection of synthetic voice patterns, "
-                f"including unnatural pitch consistency in the {language} sample."
-            )
-        else:
-            return (
-                f"Minor digital artifacts detected in the {language} speech, "
-                f"suggesting possible AI generation."
-            )
-    else:
-        if confidence >= 0.8:
-            return (
-                f"Natural prosody, breathing patterns, and organic speech flow "
-                f"detected, consistent with a human {language} speaker."
-            )
-        else:
-            return (
-                f"Speech characteristics align with human vocal patterns "
-                f"for the {language} language."
-            )
+# -------------------- PASTE INTO main.py --------------------
+# Replace the old generate_explanation function AND update the predict call
 
+def generate_explanation(classification: str, confidence: float, language: str, features: dict = None) -> str:
+    """
+    Generate explanation based on actual acoustic features detected.
+    """
+    if features is None:
+        features = {}
+
+    reasons = []
+
+    if classification == "AI_GENERATED":
+        # Check actual feature values
+        jitter = features.get('jitter', -1)
+        shimmer = features.get('shimmer', -1)
+        pitch_cv = features.get('pitch_cv', -1)
+        silence_ratio = features.get('silence_ratio', -1)
+        rms_cv = features.get('rms_cv', -1)
+        hf_smooth = features.get('hf_smooth', -1)
+        hnr = features.get('hnr', -1)
+
+        if 0 <= jitter < 0.02:
+            reasons.append(f"unusually low pitch micro-variations (jitter={jitter:.4f}) suggesting synthetic vocal generation")
+        if 0 <= shimmer < 0.2:
+            reasons.append("abnormally consistent amplitude patterns not typical of natural speech")
+        if 0 <= pitch_cv < 0.15:
+            reasons.append("limited pitch variation indicating machine-generated monotone characteristics")
+        if 0 <= rms_cv < 0.4:
+            reasons.append("uniform energy distribution lacking natural human speech dynamics")
+        if silence_ratio >= 0 and silence_ratio < 0.05:
+            reasons.append("absence of natural breathing pauses between speech segments")
+        if hf_smooth >= 0 and hf_smooth < 0.001:
+            reasons.append("smooth high-frequency spectrum consistent with neural vocoder artifacts")
+        if hnr > 15:
+            reasons.append("abnormally high harmonic-to-noise ratio indicating synthesized audio clarity")
+
+        if not reasons:
+            reasons.append("combination of spectral and temporal patterns consistent with AI-generated speech")
+
+        if confidence >= 0.85:
+            prefix = f"High-confidence AI detection in the {language} sample"
+        elif confidence >= 0.7:
+            prefix = f"Moderate indicators of synthetic generation in the {language} sample"
+        else:
+            prefix = f"Subtle synthetic patterns detected in the {language} sample"
+
+        # Pick top 2 reasons max
+        selected = reasons[:2]
+        return f"{prefix}: {'; '.join(selected)}."
+
+    else:
+        pitch_cv = features.get('pitch_cv', -1)
+        jitter = features.get('jitter', -1)
+        rms_cv = features.get('rms_cv', -1)
+        silence_ratio = features.get('silence_ratio', -1)
+
+        if jitter > 0.02:
+            reasons.append("natural pitch micro-variations (jitter) consistent with human vocal cord vibration")
+        if pitch_cv > 0.15:
+            reasons.append("healthy pitch variation reflecting natural prosody and emotional expression")
+        if rms_cv > 0.5:
+            reasons.append("dynamic energy patterns showing natural speech rhythm and emphasis")
+        if silence_ratio > 0.05:
+            reasons.append("natural breathing pauses and organic speech timing detected")
+
+        if not reasons:
+            reasons.append("overall acoustic signature consistent with natural human speech production")
+
+        if confidence >= 0.85:
+            prefix = f"Strong indicators of natural human speech in the {language} sample"
+        elif confidence >= 0.7:
+            prefix = f"Speech patterns in the {language} sample align with human vocal characteristics"
+        else:
+            prefix = f"The {language} sample shows characteristics generally associated with human speech"
+
+        selected = reasons[:2]
+        return f"{prefix}: {'; '.join(selected)}."
 
 # -------------------- HEALTH CHECK --------------------
 
@@ -155,11 +207,8 @@ def detect_voice(
                 content={"status": "error", "message": "Invalid classification returned by ML model"}
             )
 
-        explanation = generate_explanation(
-            classification,
-            confidence,
-            request.language
-        )
+        features = result.get("features", {})
+        explanation = generate_explanation(classification, confidence, request.language, features)
 
         # 8️⃣ SUCCESS RESPONSE (STRICT FORMAT)
         return {
